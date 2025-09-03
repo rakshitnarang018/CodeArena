@@ -26,37 +26,37 @@ import ChatQnARoute from "./routes/chatQna.routes.js";
 
 const app = express();
 
-const BASE_PATH = Env.BASE_PATH;
-
+// ===== Middlewares =====
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
 
 app.use(
   cors({
     origin: [
-      'http://localhost:5173',
-      'http://localhost:3000', 
-      Env.FRONTEND_ORIGIN
+      "http://localhost:5173",
+      "http://localhost:3000",
+      Env.FRONTEND_ORIGIN,
     ].filter(Boolean),
     credentials: true,
   })
 );
 
-app.use(morgan('dev'));
-app.use(helmet({
-    crossOriginResourcePolicy: false
-}));
+app.use(morgan("dev"));
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
+  })
+);
 
-
+// ===== Test Route =====
 app.get(
   "/",
-  AsyncHandler(async (req, res, next) => {
+  AsyncHandler(async (req, res) => {
     const date = new Date();
-    
+
     try {
       const pool = await poolPromise;
-      
+
       const tablesQuery = `
         SELECT 
           TABLE_SCHEMA,
@@ -66,16 +66,16 @@ app.get(
         WHERE TABLE_TYPE = 'BASE TABLE'
         ORDER BY TABLE_SCHEMA, TABLE_NAME
       `;
-      
+
       const tablesResult = await pool.request().query(tablesQuery);
-      
+
       const dbInfoQuery = `
         SELECT 
           DB_NAME() as DatabaseName,
           @@VERSION as SQLServerVersion,
           GETDATE() as CurrentTime
       `;
-      
+
       const dbInfoResult = await pool.request().query(dbInfoQuery);
 
       res.status(HTTPSTATUS.OK).json({
@@ -85,26 +85,28 @@ app.get(
         databaseInfo: dbInfoResult.recordset[0],
         tables: {
           count: tablesResult.recordset.length,
-          list: tablesResult.recordset
-        }
+          list: tablesResult.recordset,
+        },
       });
     } catch (error) {
-      console.error('Database connection test failed:', error);
-      
+      console.error("Database connection test failed:", error);
+
       res.status(HTTPSTATUS.OK).json({
         message: "Azure SQL Database Connection Test",
         status: "❌ Connection Failed",
         date,
         error: {
           message: error.message,
-          code: error.code || 'Unknown'
+          code: error.code || "Unknown",
         },
-        fallback: "Hello World - Database connection unavailable"
+        fallback: "Hello World - Database connection unavailable",
       });
     }
   })
 );
 
+// ===== API Routes =====
+const BASE_PATH = Env.BASE_PATH || "/api";
 app.use(`${BASE_PATH}/v1/users`, UserRoute);
 app.use(`${BASE_PATH}/v1/events`, EventRoute);
 app.use(`${BASE_PATH}/v1/teams`, TeamRoute);
@@ -113,8 +115,10 @@ app.use(`${BASE_PATH}/v1/announcements`, AnnouncementRoute);
 app.use(`${BASE_PATH}/v1/certificates`, CertificateRoute);
 app.use(`${BASE_PATH}/v1/chat`, ChatQnARoute);
 
+// ===== Error Handler =====
 app.use(ErrorHandler);
 
+// ===== Initialize & Start Server =====
 const initializeApp = async () => {
   try {
     await DatabaseConnect();
@@ -124,14 +128,15 @@ const initializeApp = async () => {
     await initializeEventTable();
     console.log(`Database connected in ${Env.NODE_ENV} mode.`);
   } catch (error) {
-    console.error('Failed to initialize app:', error);
+    console.error("Failed to initialize app:", error);
   }
 };
 
-app.listen(Env.PORT, async () => {
-  await initializeApp();
-  console.log(`Server is running on port ${Env.PORT} in ${Env.NODE_ENV} mode`);
-});
+const PORT = process.env.PORT || Env.PORT || 5000;
 
+app.listen(PORT, async () => {
+  await initializeApp();
+  console.log(`🚀 Server is running on port ${PORT} in ${Env.NODE_ENV} mode`);
+});
 
 export default app;
