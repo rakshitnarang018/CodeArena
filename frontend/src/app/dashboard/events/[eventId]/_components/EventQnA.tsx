@@ -1,0 +1,550 @@
+'use client';
+
+import { useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useChatQna, ChatMessage } from '@/hooks/useChatQna';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Separator } from '@/components/ui/separator';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  MessageCircle,
+  Send,
+  Reply,
+  MoreVertical,
+  Trash2,
+  Loader2,
+  AlertCircle,
+  Users,
+  HelpCircle,
+  MessageSquare,
+  Plus,
+  Shield,
+} from 'lucide-react';
+import { format } from 'date-fns';
+import { toast } from 'sonner';
+
+interface EventQnAProps {
+  eventId: string;
+  isOrganizer?: boolean;
+}
+
+const EventQnA: React.FC<EventQnAProps> = ({ eventId, isOrganizer = false }) => {
+  const { user } = useAuth();
+  const { messages, loading, error, createMessage, addReply, deleteMessage, deleteReply, loadMore, pagination } = useChatQna(eventId);
+  
+  const [newQuestion, setNewQuestion] = useState('');
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [isAskQuestionOpen, setIsAskQuestionOpen] = useState(false);
+
+  const handleSubmitQuestion = async () => {
+    if (!newQuestion.trim()) {
+      toast.error('Please enter a question');
+      return;
+    }
+
+    setSubmitting(true);
+    const result = await createMessage(newQuestion);
+    
+    if (result.success) {
+      setNewQuestion('');
+      setIsAskQuestionOpen(false);
+      toast.success('Question posted successfully');
+    } else {
+      toast.error(result.error || 'Failed to post question');
+    }
+    setSubmitting(false);
+  };
+
+  const handleSubmitReply = async (chatId: string) => {
+    if (!replyText.trim()) {
+      toast.error('Please enter a reply');
+      return;
+    }
+
+    setSubmitting(true);
+    const result = await addReply(chatId, replyText);
+    
+    if (result.success) {
+      setReplyText('');
+      setReplyingTo(null);
+      toast.success('Reply added successfully');
+    } else {
+      toast.error(result.error || 'Failed to add reply');
+    }
+    setSubmitting(false);
+  };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    const result = await deleteMessage(messageId);
+    
+    if (result.success) {
+      toast.success('Message deleted successfully');
+    } else {
+      toast.error(result.error || 'Failed to delete message');
+    }
+  };
+
+  const handleDeleteReply = async (chatId: string, replyId: string) => {
+    const result = await deleteReply(chatId, replyId);
+    
+    if (result.success) {
+      toast.success('Reply deleted successfully');
+    } else {
+      toast.error(result.error || 'Failed to delete reply');
+    }
+  };
+
+  const getRoleBadgeColor = (role: string) => {
+    switch (role?.toLowerCase()) {
+      case 'organizer': return 'bg-purple-100 text-purple-800';
+      case 'judge': return 'bg-orange-100 text-orange-800';
+      case 'participant': return 'bg-blue-100 text-blue-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const canDeleteMessage = (message: ChatMessage) => {
+    return user && (user.id === message.fromUserId.toString() || user.role === 'organizer');
+  };
+
+  const canDeleteReply = (reply: any) => {
+    return user && (user.id === reply.fromUserId.toString() || user.role === 'organizer');
+  };
+
+  const getUnansweredCount = () => {
+    return messages.filter(message => message.replies.length === 0).length;
+  };
+
+  if (loading && messages.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading FAQ...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader className="pb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-primary/10 rounded-lg">
+                <HelpCircle className="h-6 w-6 text-primary" />
+              </div>
+              <div>
+                <CardTitle className="text-xl">
+                  Event Q&A
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  Ask questions and get answers from organizers and the community. Open to everyone!
+                </CardDescription>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {isOrganizer && getUnansweredCount() > 0 && (
+                <Badge variant="destructive" className="text-xs">
+                  {getUnansweredCount()} unanswered
+                </Badge>
+              )}
+              {messages.length > 0 && (
+                <Badge variant="secondary" className="text-xs">
+                  {messages.length} {messages.length === 1 ? 'question' : 'questions'}
+                </Badge>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {error && (
+            <Alert variant="destructive" className="mb-6">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {/* Ask Question Button */}
+          {user ? (
+            <div className="mb-6">
+              <Dialog open={isAskQuestionOpen} onOpenChange={setIsAskQuestionOpen}>
+                <DialogTrigger asChild>
+                  <Button className="w-full sm:w-auto" size="lg">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Ask a Question
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[600px]">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <MessageSquare className="h-5 w-5" />
+                      Ask a Question
+                    </DialogTitle>
+                    <DialogDescription>
+                      Have a question about this event? Ask the organizers and community members. No enrollment required - anyone can ask questions!
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Your Question</label>
+                      <Textarea
+                        placeholder="What would you like to know about this event? Ask anything - from registration details to event requirements, schedule, judging criteria, eligibility, or any other questions!"
+                        value={newQuestion}
+                        onChange={(e) => setNewQuestion(e.target.value)}
+                        className="min-h-[120px] resize-none"
+                        rows={5}
+                      />
+                    </div>
+                    <div className="bg-blue-50 p-3 rounded-lg">
+                      <p className="text-xs text-blue-700 font-medium mb-1">💡 Tips for asking good questions:</p>
+                      <ul className="text-xs text-blue-600 space-y-1">
+                        <li>• Be specific and clear about what you want to know</li>
+                        <li>• Check existing questions below to avoid duplicates</li>
+                        <li>• Ask before enrolling - perfect for pre-event questions!</li>
+                        <li>• Include relevant context if needed</li>
+                      </ul>
+                    </div>
+                    <div className="flex justify-end gap-3">
+                      <Button 
+                        variant="outline" 
+                        onClick={() => {
+                          setIsAskQuestionOpen(false);
+                          setNewQuestion('');
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button 
+                        onClick={handleSubmitQuestion} 
+                        disabled={submitting || !newQuestion.trim()}
+                        className="min-w-[120px]"
+                      >
+                        {submitting ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Send className="h-4 w-4 mr-2" />
+                        )}
+                        Post Question
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+          ) : (
+            <div className="mb-6 p-6 border-2 border-dashed border-orange-200 rounded-lg bg-orange-50">
+              <div className="text-center">
+                <MessageCircle className="h-12 w-12 text-orange-400 mx-auto mb-3" />
+                <h3 className="font-semibold text-lg mb-2">Want to Ask a Question?</h3>
+                <p className="text-muted-foreground mb-4">
+                  Please log in to ask questions and interact with the event organizers
+                </p>
+                <Button variant="default" asChild>
+                  <a href="/auth/login">
+                    Log In to Ask Questions
+                  </a>
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Messages List */}
+          {messages.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="max-w-md mx-auto">
+                <Users className="h-16 w-16 text-muted-foreground mx-auto mb-6" />
+                <h3 className="text-xl font-semibold mb-3">No Questions Yet</h3>
+                <p className="text-muted-foreground mb-6">
+                  This event doesn't have any questions yet. Be the first to ask a question! Anyone can ask questions - no enrollment required.
+                </p>
+                {user ? (
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium text-primary">
+                      Common questions you might want to ask:
+                    </p>
+                    <div className="grid grid-cols-1 gap-2 text-xs text-muted-foreground">
+                      <p>• What are the registration requirements and eligibility?</p>
+                      <p>• What's the event schedule and timeline?</p>
+                      <p>• Are there any prerequisites to participate?</p>
+                      <p>• How will the judging/evaluation work?</p>
+                      <p>• What tools or technologies can we use?</p>
+                      <p>• How do I register for this event?</p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Please log in to ask questions and join the discussion.
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {messages.map((message) => (
+                <div key={message._id} className="bg-white border border-slate-200 rounded-xl p-6 hover:shadow-md transition-all duration-200">
+                  {/* Question */}
+                  <div className="flex items-start gap-4 mb-6">
+                    <Avatar className="h-10 w-10 border-2 border-slate-200">
+                      <AvatarFallback className="text-sm font-medium bg-gradient-to-br from-blue-100 to-purple-100">
+                        {message.userDetails?.name?.charAt(0).toUpperCase() || 'U'}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="font-semibold text-base text-slate-800">
+                          {message.userDetails?.name || 'Anonymous'}
+                        </span>
+                        <Badge className={getRoleBadgeColor(message.userDetails?.role || '')} variant="secondary">
+                          {message.userDetails?.role || 'user'}
+                        </Badge>
+                        <span className="text-xs text-slate-500">
+                          {format(new Date(message.createdAt), 'MMM dd, yyyy • HH:mm')}
+                        </span>
+                        {message.replies.length === 0 ? (
+                          <Badge variant="outline" className="text-xs text-orange-600 border-orange-200 bg-orange-50">
+                            ⏳ Awaiting Answer
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-xs text-green-600 border-green-200 bg-green-50">
+                            ✅ Answered
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                        <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+                          {message.message}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {canDeleteMessage(message) && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-slate-100">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem 
+                            onClick={() => handleDeleteMessage(message._id)}
+                            className="text-red-600"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </div>
+
+                  {/* Replies */}
+                  {message.replies.length > 0 && (
+                    <div className="ml-11 space-y-4 mb-4">
+                      <div className="flex items-center gap-2">
+                        <Separator className="flex-1" />
+                        <Badge variant="secondary" className="text-xs px-2 py-1">
+                          {message.replies.length} {message.replies.length === 1 ? 'Answer' : 'Answers'}
+                        </Badge>
+                        <Separator className="flex-1" />
+                      </div>
+                      
+                      <div className="space-y-3">
+                        {message.replies.map((reply, index) => (
+                          <div key={reply._id} className="relative">
+                            {/* Reply connector line */}
+                            <div className="absolute left-4 top-0 bottom-0 w-px bg-border" />
+                            
+                            <div className="flex items-start gap-4 relative">
+                              {/* Avatar with connector */}
+                              <div className="relative">
+                                <Avatar className="h-8 w-8 border-2 border-background">
+                                  <AvatarFallback className="text-xs font-medium bg-gradient-to-br from-blue-100 to-green-100">
+                                    {reply.userDetails?.name?.charAt(0).toUpperCase() || 'U'}
+                                  </AvatarFallback>
+                                </Avatar>
+                                {/* Role indicator */}
+                                {reply.userDetails?.role === 'organizer' && (
+                                  <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-purple-500 rounded-full border border-background flex items-center justify-center">
+                                    <Shield className="h-1.5 w-1.5 text-white" />
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Reply Content */}
+                              <div className="flex-1 bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200 rounded-lg p-4 shadow-sm">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-sm text-slate-700">
+                                      {reply.userDetails?.name || 'Anonymous'}
+                                    </span>
+                                    <Badge 
+                                      className={`text-xs ${getRoleBadgeColor(reply.userDetails?.role || '')}`} 
+                                      variant="secondary"
+                                    >
+                                      {reply.userDetails?.role || 'user'}
+                                    </Badge>
+                                    {reply.userDetails?.role === 'organizer' && (
+                                      <Badge className="text-xs bg-purple-100 text-purple-700 border-purple-200">
+                                        ✓ Official Answer
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500">
+                                      {format(new Date(reply.createdAt), 'MMM dd • HH:mm')}
+                                    </span>
+                                    {canDeleteReply(reply) && (
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-slate-200">
+                                            <MoreVertical className="h-3 w-3" />
+                                          </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                          <DropdownMenuItem 
+                                            onClick={() => handleDeleteReply(message._id, reply._id)}
+                                            className="text-red-600"
+                                          >
+                                            <Trash2 className="h-3 w-3 mr-2" />
+                                            Delete
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+                                    )}
+                                  </div>
+                                </div>
+                                
+                                <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+                                  {reply.message}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Reply Form - Available for organizers and judges */}
+                  {user && (user.role === 'organizer' || user.role === 'judge') && (
+                    <div className="ml-11">
+                      {replyingTo === message._id ? (
+                        <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4 space-y-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Avatar className="h-6 w-6">
+                              <AvatarFallback className="text-xs bg-blue-100 text-blue-700">
+                                {user.name?.charAt(0).toUpperCase() || 'U'}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="text-sm font-medium text-blue-900">
+                              Replying as {user.role}
+                            </span>
+                          </div>
+                          
+                          <Textarea
+                            placeholder="Write your answer... Be clear and helpful!"
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            rows={3}
+                            className="text-sm border-blue-200 focus:border-blue-400 bg-white"
+                          />
+                          
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-blue-600">
+                              💡 Your answer will be marked as an official response
+                            </span>
+                            <div className="flex gap-2">
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => {
+                                  setReplyingTo(null);
+                                  setReplyText('');
+                                }}
+                                className="border-slate-300 text-slate-600 hover:bg-slate-50"
+                              >
+                                Cancel
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                onClick={() => handleSubmitReply(message._id)}
+                                disabled={submitting || !replyText.trim()}
+                                className="bg-blue-600 hover:bg-blue-700 text-white"
+                              >
+                                {submitting ? (
+                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                ) : (
+                                  <Send className="h-3 w-3 mr-1" />
+                                )}
+                                Post Answer
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <div className="h-px bg-border flex-1" />
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => setReplyingTo(message._id)}
+                            className="border-blue-200 text-blue-700 hover:bg-blue-50 hover:border-blue-300"
+                          >
+                            <Reply className="h-3 w-3 mr-1" />
+                            Answer Question
+                          </Button>
+                          <div className="h-px bg-border flex-1" />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Load More */}
+              {pagination && pagination.hasNext && (
+                <div className="text-center">
+                  <Button 
+                    variant="outline" 
+                    onClick={loadMore}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : null}
+                    Load More Questions
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
+export default EventQnA;
