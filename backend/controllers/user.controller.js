@@ -1,4 +1,4 @@
-import { UserModel } from "../models/User.model.js";
+import { UserModel } from "../models/user.model.js";
 import { executeParameterizedQuery } from "../utils/sql.util.js";
 import { 
   createUserValidator,
